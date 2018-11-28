@@ -35,6 +35,20 @@
 #define floor(a)   ((int)(a))
 #define ceil(a)    ((int)((int)(a) < (a) ? (a+1) : (a)))
 
+/* The examples use WiFi configuration that you can set via 'make menuconfig'.
+
+   If you'd rather not, just change the below entries to strings with
+   the config you want - ie #define EXAMPLE_WIFI_SSID "mywifissid"
+*/
+#define EXAMPLE_ESP_WIFI_SSID      "SympatecCactus"
+#define EXAMPLE_ESP_WIFI_PASS      "cactus2018"
+#define EXAMPLE_MAX_STA_CONN       10
+
+/* FreeRTOS event group to signal when we are connected*/
+static EventGroupHandle_t s_wifi_event_group;
+
+static const char *TAG = "wifi softAP";
+
 void app_cpp_main();
 
 strand_t STRANDS[] = { // Avoid using any of the strapping pins on the ESP32
@@ -263,8 +277,89 @@ void scanner(strand_t * pStrand, unsigned long delay_ms, unsigned long timeout_m
   //digitalLeds_resetPixels(pStrand);
 }
 
+
+static esp_err_t event_handler(void *ctx, system_event_t *event)
+{
+    switch(event->event_id) {
+    case SYSTEM_EVENT_AP_STACONNECTED:
+        ESP_LOGI(TAG, "station:" MACSTR " join, AID=%d",
+                 MAC2STR(event->event_info.sta_connected.mac),
+                 event->event_info.sta_connected.aid);
+        break;
+    case SYSTEM_EVENT_AP_STADISCONNECTED:
+        ESP_LOGI(TAG, "station:" MACSTR "leave, AID=%d",
+                 MAC2STR(event->event_info.sta_disconnected.mac),
+                 event->event_info.sta_disconnected.aid);
+        break;
+    default:
+        break;
+    }
+    return ESP_OK;
+}
+
+void wifi_init_softap()
+{
+    s_wifi_event_group = xEventGroupCreate();
+
+    tcpip_adapter_init();
+    ESP_ERROR_CHECK(esp_event_loop_init(event_handler, NULL));
+
+    ESP_ERROR_CHECK(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
+	tcpip_adapter_ip_info_t info;
+	memset(&info, 0, sizeof(info));
+	IP4_ADDR(&info.ip, 192, 168, 5, 1);
+	IP4_ADDR(&info.gw, 192, 168, 5, 1);
+	IP4_ADDR(&info.netmask, 255, 255, 255, 0);
+	ESP_ERROR_CHECK(tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_AP, &info));
+  ESP_ERROR_CHECK(tcpip_adapter_dhcps_start(TCPIP_ADAPTER_IF_AP));
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    /*
+    // Das hier funktioniert nur unter reinem C, nicht C++
+    wifi_config_t wifi_config = {
+        .ap = {
+            .ssid = EXAMPLE_ESP_WIFI_SSID,
+            .ssid_len = strlen(EXAMPLE_ESP_WIFI_SSID),
+            .password = EXAMPLE_ESP_WIFI_PASS,
+            .max_connection = EXAMPLE_MAX_STA_CONN,
+            .authmode = WIFI_AUTH_WPA_WPA2_PSK
+        },
+    };*/
+
+    //Allocate storage for the struct
+    wifi_config_t config = {};
+
+    //Assign ssid & password strings
+    strcpy((char*)config.ap.ssid, EXAMPLE_ESP_WIFI_SSID);
+    strcpy((char*)config.ap.password, EXAMPLE_ESP_WIFI_PASS);
+    config.ap.max_connection = EXAMPLE_MAX_STA_CONN;
+    config.ap.authmode = WIFI_AUTH_WPA2_PSK;
+
+    if (strlen(EXAMPLE_ESP_WIFI_PASS) == 0) {
+        config.ap.authmode = WIFI_AUTH_OPEN;
+    }
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+    ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    ESP_LOGI(TAG, "wifi_init_softap finished.SSID:%s password:%s",
+             config.ap.ssid, config.ap.password);
+}
+
 extern "C" int app_main(void)
 {
+  //Initialize NVS
+  esp_err_t ret = nvs_flash_init();
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+  {
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    ret = nvs_flash_init();
+  }
+  ESP_ERROR_CHECK(ret);
+  ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
+  wifi_init_softap();
   app_cpp_main();
   return 0;
 }
