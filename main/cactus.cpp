@@ -17,6 +17,7 @@
 #include <math.h>
 #include <string.h>
 #include <vector>
+#include "tools.h"
 
 #include "lwip/err.h"
 #include "lwip/sys.h"
@@ -272,18 +273,7 @@ void wifi_init_softap()
 
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-  /*
-    // Das hier funktioniert nur unter reinem C, nicht C++
-    wifi_config_t wifi_config = {
-        .ap = {
-            .ssid = EXAMPLE_ESP_WIFI_SSID,
-            .ssid_len = strlen(EXAMPLE_ESP_WIFI_SSID),
-            .password = EXAMPLE_ESP_WIFI_PASS,
-            .max_connection = EXAMPLE_MAX_STA_CONN,
-            .authmode = WIFI_AUTH_WPA_WPA2_PSK
-        },
-    };*/
-
+  
   // Allocate storage for the struct
   wifi_config_t config = {};
 
@@ -388,7 +378,7 @@ void app_cpp_main()
   int e = 0;
   int old_e = -1;
   for (;;)
-  { 
+  {
     e = rand() % 6;
     while (old_e == e)
       e = rand() % 6;
