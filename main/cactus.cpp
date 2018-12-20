@@ -22,6 +22,8 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
+#include "CactusCommands.h"
+
 using namespace std;
 
 #define DEC 10
