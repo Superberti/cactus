@@ -32,7 +32,7 @@
 /// und den Parametern, die mit Leerzeichen getrennt werden. Gibt es in einem Parameter
 /// Leerzeichen, so ist der Parameter in Anfuehrungszeichen zu setzen.
 /// Alle Befehle und Antworten muessen in einer Zeile stehen und enden mit einem Return.
-enum TCocoaCommand {
+enum TCactusCommand {
 	/// Unbekanntes Kommando
 	eCMD_UNKNOWN 						= 0,
  
@@ -134,7 +134,7 @@ enum TCocoaCommand {
 /// Kommandostruktur. Bindet den Befehl an eine feste Zeichenkette
 struct TCommandStruct
 {
-	TCocoaCommand 	mCmd;				  ///< Identifizierer des Kommandos.
+	TCactusCommand 	mCmd;				  ///< Identifizierer des Kommandos.
 	char						mCmdStr[40]; 	///< Dazugehoeriger Kommandostring
 	int 						mNumParams;		///< Mindestanzahl zum Befehl zugehoeriger Parameter. Zusaetzliche Parameter, die der Server (noch) nicht versteht, werden ignoriert!
 };//TWxSensorData

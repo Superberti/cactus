@@ -17,12 +17,14 @@
 #include <math.h>
 #include <string.h>
 #include <vector>
+#include "mqtt_client.h"
 #include "tools.h"
 
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
 #include "CactusCommands.h"
+#include "CactusErrors.h"
 
 using namespace std;
 
@@ -46,18 +48,27 @@ using namespace std;
    If you'd rather not, just change the below entries to strings with
    the config you want - ie #define EXAMPLE_WIFI_SSID "mywifissid"
 */
-#define EXAMPLE_ESP_WIFI_SSID "SympatecCactus"
-#define EXAMPLE_ESP_WIFI_PASS "cactus2018"
+#define CONFIG_WIFI_SSID "SympatecCactus"
+#define CONFIG_WIFI_PASSWORD "cactus2019"
 #define EXAMPLE_MAX_STA_CONN 10
+#define CONFIG_BROKER_URL "mqtt://schleppi"
 
 /* FreeRTOS event group to signal when we are connected*/
-static EventGroupHandle_t s_wifi_event_group;
+//static EventGroupHandle_t s_wifi_event_group;
 
-static const char *TAG = "wifi softAP";
+static const char *TAG = "Sympatec MQTT Cactus";
+static bool smMQTTConnected = false;
+static esp_mqtt_client_handle_t mqtt_client = NULL;
 
+// Prototypen
+static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event);
+static esp_err_t wifi_event_handler(void *ctx, system_event_t *event);
 void app_cpp_main();
+static void mqtt_app_start(void);
+static void wifi_init(void);
 void LedEffect(int aEffectNum, int aDuration_ms);
 vector<uint8_t> GetLEDsPercent(double aPercent);
+int CheckRGB(std::string &, std::string &, std::string &, int &, int &, int &);
 
 strand_t STRANDS[] = {
     // Avoid using any of the strapping pins on the ESP32
@@ -71,6 +82,196 @@ strand_t STRANDS[] = {
 };
 
 int STRANDCNT = sizeof(STRANDS) / sizeof(STRANDS[0]);
+
+static EventGroupHandle_t wifi_event_group;
+const static int CONNECTED_BIT = BIT0;
+
+extern "C" int app_main(void)
+{
+  // Initialize NVS
+  esp_err_t ret = nvs_flash_init();
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+  {
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    ret = nvs_flash_init();
+  }
+  ESP_ERROR_CHECK(ret);
+  ESP_LOGI(TAG, "ESP_WIFI_MODE_CLIENT");
+  wifi_init();
+  mqtt_app_start();
+  app_cpp_main();
+  return 0;
+}
+
+static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
+{
+  esp_mqtt_client_handle_t client = event->client;
+  int msg_id;
+  // your_context_t *context = event->context;
+  switch (event->event_id)
+  {
+  case MQTT_EVENT_CONNECTED:
+    smMQTTConnected = true;
+    msg_id = esp_mqtt_client_subscribe(client, "/topic/qos0", 0);
+    ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
+
+    msg_id = esp_mqtt_client_subscribe(client, "/topic/qos1", 1);
+    ESP_LOGI(TAG, "sent subscribe successful, msg_id=%d", msg_id);
+
+    msg_id = esp_mqtt_client_unsubscribe(client, "/topic/qos1");
+    ESP_LOGI(TAG, "sent unsubscribe successful, msg_id=%d", msg_id);
+    break;
+  case MQTT_EVENT_DISCONNECTED:
+    smMQTTConnected = false;
+    ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
+    break;
+
+  case MQTT_EVENT_SUBSCRIBED:
+    ESP_LOGI(TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+    msg_id = esp_mqtt_client_publish(client, "/topic/qos0", "data", 0, 0, 0);
+    ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+    break;
+  case MQTT_EVENT_UNSUBSCRIBED:
+    ESP_LOGI(TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+    break;
+  case MQTT_EVENT_PUBLISHED:
+    ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+    break;
+  case MQTT_EVENT_DATA:
+    ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+    printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+    printf("DATA=%.*s\r\n", event->data_len, event->data);
+    break;
+  case MQTT_EVENT_ERROR:
+    ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
+    break;
+  case MQTT_EVENT_BEFORE_CONNECT:
+    ESP_LOGI(TAG, "MQTT_EVENT_BEFORE_CONNECT");
+    break;
+  }
+  return ESP_OK;
+}
+
+static esp_err_t wifi_event_handler(void *ctx, system_event_t *event)
+{
+  switch (event->event_id)
+  {
+  case SYSTEM_EVENT_STA_START:
+    esp_wifi_connect();
+    break;
+  case SYSTEM_EVENT_STA_GOT_IP:
+    xEventGroupSetBits(wifi_event_group, CONNECTED_BIT);
+
+    break;
+  case SYSTEM_EVENT_STA_DISCONNECTED:
+    esp_wifi_connect();
+    xEventGroupClearBits(wifi_event_group, CONNECTED_BIT);
+    break;
+  default:
+    break;
+  }
+  return ESP_OK;
+}
+
+static void wifi_init(void)
+{
+  tcpip_adapter_init();
+  wifi_event_group = xEventGroupCreate();
+  ESP_ERROR_CHECK(esp_event_loop_init(wifi_event_handler, NULL));
+  wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+  ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+  ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+  wifi_config_t wifi_config = {};
+  strcpy((char *)wifi_config.sta.ssid, CONFIG_WIFI_SSID);
+  strcpy((char *)wifi_config.sta.password, CONFIG_WIFI_PASSWORD);
+
+  ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+  ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config));
+  ESP_LOGI(TAG, "start the WIFI SSID:[%s]", CONFIG_WIFI_SSID);
+  ESP_ERROR_CHECK(esp_wifi_start());
+  ESP_LOGI(TAG, "Waiting for wifi");
+  xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT, false, true, portMAX_DELAY);
+}
+
+static void mqtt_app_start(void)
+{
+  esp_mqtt_client_config_t mqtt_cfg = {};
+  strcpy((char *)mqtt_cfg.uri, CONFIG_BROKER_URL);
+  mqtt_cfg.event_handle = mqtt_event_handler;
+  mqtt_cfg.user_context = NULL;
+  // .user_context = (void *)your_context
+
+  mqtt_client = esp_mqtt_client_init(&mqtt_cfg);
+  esp_mqtt_client_start(mqtt_client);
+}
+
+// Bei Konfiguration als AccessPoint sind diese Funktionen wieder einzukommentieren
+/*
+static esp_err_t
+event_handler(void *ctx, system_event_t *event)
+{
+  switch (event->event_id)
+  {
+  case SYSTEM_EVENT_AP_STACONNECTED:
+    ESP_LOGI(TAG,
+             "station:" MACSTR " join, AID=%d",
+             MAC2STR(event->event_info.sta_connected.mac),
+             event->event_info.sta_connected.aid);
+    break;
+  case SYSTEM_EVENT_AP_STADISCONNECTED:
+    ESP_LOGI(TAG,
+             "station:" MACSTR "leave, AID=%d",
+             MAC2STR(event->event_info.sta_disconnected.mac),
+             event->event_info.sta_disconnected.aid);
+    break;
+  default:
+    break;
+  }
+  return ESP_OK;
+}
+
+void wifi_init_softap()
+{
+  s_wifi_event_group = xEventGroupCreate();
+
+  tcpip_adapter_init();
+  ESP_ERROR_CHECK(esp_event_loop_init(event_handler, NULL));
+
+  ESP_ERROR_CHECK(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
+  tcpip_adapter_ip_info_t info;
+  memset(&info, 0, sizeof(info));
+  IP4_ADDR(&info.ip, 192, 168, 5, 1);
+  IP4_ADDR(&info.gw, 192, 168, 5, 1);
+  IP4_ADDR(&info.netmask, 255, 255, 255, 0);
+  ESP_ERROR_CHECK(tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_AP, &info));
+  ESP_ERROR_CHECK(tcpip_adapter_dhcps_start(TCPIP_ADAPTER_IF_AP));
+
+  wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+  ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+  
+  // Allocate storage for the struct
+  wifi_config_t config = {};
+
+  // Assign ssid & password strings
+  strcpy((char *)config.ap.ssid, EXAMPLE_ESP_WIFI_SSID);
+  strcpy((char *)config.ap.password, EXAMPLE_ESP_WIFI_PASS);
+  config.ap.max_connection = EXAMPLE_MAX_STA_CONN;
+  config.ap.authmode = WIFI_AUTH_WPA2_PSK;
+
+  if (strlen(EXAMPLE_ESP_WIFI_PASS) == 0)
+  {
+    config.ap.authmode = WIFI_AUTH_OPEN;
+  }
+
+  ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
+  ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &config));
+  ESP_ERROR_CHECK(esp_wifi_start());
+
+  ESP_LOGI(TAG,
+           "wifi_init_softap finished.SSID:%s password:%s",
+           config.ap.ssid,
+           config.ap.password);
+}*/
 
 void gpioSetup(int gpioNum, int gpioMode, int gpioVal)
 {
@@ -234,89 +435,6 @@ void scanner(strand_t *pStrand, unsigned long delay_ms, unsigned long timeout_ms
   // digitalLeds_resetPixels(pStrand);
 }
 
-static esp_err_t
-event_handler(void *ctx, system_event_t *event)
-{
-  switch (event->event_id)
-  {
-  case SYSTEM_EVENT_AP_STACONNECTED:
-    ESP_LOGI(TAG,
-             "station:" MACSTR " join, AID=%d",
-             MAC2STR(event->event_info.sta_connected.mac),
-             event->event_info.sta_connected.aid);
-    break;
-  case SYSTEM_EVENT_AP_STADISCONNECTED:
-    ESP_LOGI(TAG,
-             "station:" MACSTR "leave, AID=%d",
-             MAC2STR(event->event_info.sta_disconnected.mac),
-             event->event_info.sta_disconnected.aid);
-    break;
-  default:
-    break;
-  }
-  return ESP_OK;
-}
-
-void wifi_init_softap()
-{
-  s_wifi_event_group = xEventGroupCreate();
-
-  tcpip_adapter_init();
-  ESP_ERROR_CHECK(esp_event_loop_init(event_handler, NULL));
-
-  ESP_ERROR_CHECK(tcpip_adapter_dhcps_stop(TCPIP_ADAPTER_IF_AP));
-  tcpip_adapter_ip_info_t info;
-  memset(&info, 0, sizeof(info));
-  IP4_ADDR(&info.ip, 192, 168, 5, 1);
-  IP4_ADDR(&info.gw, 192, 168, 5, 1);
-  IP4_ADDR(&info.netmask, 255, 255, 255, 0);
-  ESP_ERROR_CHECK(tcpip_adapter_set_ip_info(TCPIP_ADAPTER_IF_AP, &info));
-  ESP_ERROR_CHECK(tcpip_adapter_dhcps_start(TCPIP_ADAPTER_IF_AP));
-
-  wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-  ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-  
-  // Allocate storage for the struct
-  wifi_config_t config = {};
-
-  // Assign ssid & password strings
-  strcpy((char *)config.ap.ssid, EXAMPLE_ESP_WIFI_SSID);
-  strcpy((char *)config.ap.password, EXAMPLE_ESP_WIFI_PASS);
-  config.ap.max_connection = EXAMPLE_MAX_STA_CONN;
-  config.ap.authmode = WIFI_AUTH_WPA2_PSK;
-
-  if (strlen(EXAMPLE_ESP_WIFI_PASS) == 0)
-  {
-    config.ap.authmode = WIFI_AUTH_OPEN;
-  }
-
-  ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-  ESP_ERROR_CHECK(esp_wifi_set_config(ESP_IF_WIFI_AP, &config));
-  ESP_ERROR_CHECK(esp_wifi_start());
-
-  ESP_LOGI(TAG,
-           "wifi_init_softap finished.SSID:%s password:%s",
-           config.ap.ssid,
-           config.ap.password);
-}
-
-extern "C" int
-app_main(void)
-{
-  // Initialize NVS
-  esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
-  {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ret = nvs_flash_init();
-  }
-  ESP_ERROR_CHECK(ret);
-  ESP_LOGI(TAG, "ESP_WIFI_MODE_AP");
-  wifi_init_softap();
-  app_cpp_main();
-  return 0;
-}
-
 // digitales Abbild des Kaktus, jeden cm abgerastert von unten nach oben
 const vector<vector<uint8_t>> cactus{
     {0, 143},
@@ -377,19 +495,184 @@ void app_cpp_main()
       delay(100);
     };
   }
+  /*
   int e = 0;
-  int old_e = -1;
+  int old_e = -1;*/
+  
+  uint32_t CurrentTime = 0;
+  uint32_t LastTime = millis();
+  strand_t *pStrand = &STRANDS[0];
   for (;;)
   {
+    // Status der LEDs jede Sekunde veröffentlichen
+    CurrentTime = millis();
+    if ((CurrentTime - LastTime) > 1000 && smMQTTConnected)
+    {
+      LastTime = CurrentTime;
+      ESP_LOGI(TAG, "publishing LED status");
+      int msg_id = esp_mqtt_client_publish(mqtt_client, "/cactus/LED_STATUS", (char *)pStrand->pixels, pStrand->numPixels * sizeof(pixelColor_t), 1, 0);
+      ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+    }
+    /*
     e = rand() % 6;
     while (old_e == e)
       e = rand() % 6;
     old_e = e;
     LedEffect(e, 10000);
-    //LedEffect(5, 10000);
+    */
   }
 
   vTaskDelete(NULL);
+}
+
+uint32_t ProcessCommandLine(char *aCmdLine, int aLineLength)
+{
+  std::vector<std::string> iTokens;
+  aCmdLine[aLineLength - 1] = 0; // sicherheitshalber NULL-terminieren
+  KillReturnAndEndl(aCmdLine);
+  string InputLine(aCmdLine);
+  ParseLine(InputLine, iTokens);
+
+  TCactusCommand CurrentCommand = eCMD_UNKNOWN;
+
+  if (iTokens.size() == 0)
+  {
+    ESP_LOGI(TAG, "Empty command detected...");
+    return ERR_EMPTYCMD;
+  }
+  // Nachsehen, welches Kommando gesendet wurde
+  for (unsigned int i = 1; i < sizeof(CactusCommands) / sizeof(CactusCommands[0]); i++)
+  {
+    if (iTokens.at(0) == std::string(CactusCommands[i].mCmdStr))
+    {
+      CurrentCommand = TCactusCommand(i);
+      break;
+    }
+  }
+  if (CurrentCommand == eCMD_UNKNOWN)
+  {
+    ESP_LOGI(TAG, "Unknown cactus command: %s", iTokens.at(0).c_str());
+    return ERR_UNKNOWNCOMMAND;
+  }
+  if ((int)iTokens.size() - 1 < CactusCommands[CurrentCommand].mNumParams)
+  {
+    ESP_LOGI(TAG, "Number of parameters incorrect: %s", InputLine.c_str());
+    return ERR_NUMPARAMS;
+  }
+
+  strand_t *pStrand = &STRANDS[0];
+
+  // Jetzt können die Kommandos ausgewertet und verarbeitet werden.
+  switch (CurrentCommand)
+  {
+  case eCMD_CLIENTVERSION:
+  {
+    break;
+  }
+  case eCMD_CLIENTID:
+  {
+    break;
+  }
+  case eCMD_CLIENTHOSTNAME:
+  {
+    break;
+  }
+  case eCMD_GETSERVERVERSION:
+  {
+    break;
+  }
+  case eCMD_HELLO:
+  {
+    break;
+  }
+  case eCMD_GETCONFIGITEM:
+  {
+    break;
+  }
+  case eCMD_SETCONFIGITEM:
+  {
+    break;
+  }
+  case eCMD_DELETECONFIGITEM:
+  {
+    break;
+  }
+  case eCMD_CONFIGITEM_EXISTS:
+  {
+    break;
+  }
+  case eCMD_SET_LED:
+  {
+    int iLedNumber = -1;
+    int r, g, b;
+    iLedNumber = strtol(iTokens.at(1).c_str(), NULL, 10);
+    if (iLedNumber < 0 || iLedNumber > 143)
+    {
+      ESP_LOGI(TAG, "Parameter 1 out of bound (0-143): %s", iTokens.at(1).c_str());
+      return ERR_PARAM_OUT_OF_BOUNDS;
+    }
+    int Err = CheckRGB(iTokens.at(2), iTokens.at(3), iTokens.at(4), r, g, b);
+    if (Err != ERR_OK)
+    {
+      return Err;
+    }
+
+    pixelColor_t Color = pixelFromRGB(r, g, b);
+
+    pStrand->pixels[iLedNumber] = Color;
+    digitalLeds_updatePixels(pStrand);
+    break;
+  }
+  case eCMD_SET_LEDS:
+  {
+    break;
+  }
+  case eCMD_SET_LED_RANGE:
+  {
+    break;
+  }
+  case eCMD_LED_EFFECT:
+  {
+    break;
+  }
+  case eCMD_FILL_CACTUS:
+  {
+    break;
+  }
+  default:
+  {
+    ESP_LOGI(TAG, "Command not (yet) implemented: %s", InputLine.c_str());
+    return ERR_CMD_NOTSUPPORTED;
+  }
+  }
+  return ERR_OK;
+}
+
+int CheckRGB(std::string &rs, std::string &gs, std::string &bs, int &r, int &g, int &b)
+{
+  r = -1;
+  g = -1;
+  b = -1;
+  r = strtol(rs.c_str(), NULL, 10);
+  g = strtol(gs.c_str(), NULL, 10);
+  b = strtol(bs.c_str(), NULL, 10);
+
+  if (r < 0 || r > 255)
+  {
+    ESP_LOGI(TAG, "Parameter red out of bounds (0-255): %s", rs.c_str());
+    return ERR_PARAM_OUT_OF_BOUNDS;
+  }
+  if (g < 0 || g > 255)
+  {
+    ESP_LOGI(TAG, "Parameter green out of bounds (0-255): %s", gs.c_str());
+    return ERR_PARAM_OUT_OF_BOUNDS;
+  }
+  if (b < 0 || b > 255)
+  {
+    ESP_LOGI(TAG, "Parameter blue out of bounds (0-255): %s", bs.c_str());
+    return ERR_PARAM_OUT_OF_BOUNDS;
+  }
+  return ERR_OK;
 }
 
 void LedEffect(int aEffectNum, int aDuration_ms)
@@ -429,7 +712,6 @@ void LedEffect(int aEffectNum, int aDuration_ms)
     case 2:
     {
       pixelColor_t BlackColor = pixelFromRGB(0, 0, 0);
-      pixelColor_t WhiteColor = pixelFromRGB(255, 255, 255);
 
       for (int t = 0; t < pStrand->numPixels; t++)
       {
