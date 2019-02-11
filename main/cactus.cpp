@@ -472,7 +472,7 @@ vector<uint8_t> GetLEDsPercent(double aPercent)
 
 void app_cpp_main()
 {
-	bool toggle = true;
+	bool toggle = false;
 	gpioSetup(17, OUTPUT, LOW);
 	gpioSetup(2, OUTPUT, HIGH);
 
@@ -497,13 +497,18 @@ int old_e = -1;*/
 	{
 		// Status der LEDs jede Sekunde veröffentlichen
 		CurrentTime = millis();
-		if ((CurrentTime - LastTime) > 1000 && smMQTTConnected)
+		if ((CurrentTime - LastTime) > 1000)
 		{
 			LastTime = CurrentTime;
-			ESP_LOGI(TAG, "publishing LED status");
-			int msg_id = esp_mqtt_client_publish(mqtt_client, "/cactus/LED_STATUS", (char *)pStrand->pixels,
-																					 pStrand->numPixels * sizeof(pixelColor_t), 1, 0);
-			ESP_LOGI(TAG, "sent publish successful, msg_id=%d", msg_id);
+			if (smMQTTConnected)
+			{
+				ESP_LOGI(TAG, "publishing LED status");
+				int msg_id = esp_mqtt_client_publish(mqtt_client, "/cactus/LED_STATUS", (char *)pStrand->pixels,
+																						 pStrand->numPixels * sizeof(pixelColor_t), 1, 0);
+				ESP_LOGI(TAG, "publish return status, msg_id=%d", msg_id);
+			}
+			toggle = !toggle;
+			gpio_set_level(GPIO_NUM_2, (uint32_t)toggle);
 		}
 		/*
 e = rand() % 6;
@@ -615,10 +620,6 @@ uint32_t ProcessCommandLine(char *aCmdLine, int aLineLength)
 			digitalLeds_updatePixels(pStrand);
 			break;
 		}
-		case eCMD_SET_LEDS:
-		{
-			break;
-		}
 		case eCMD_SET_LED_RANGE:
 		{
 			int iStartLedNumber = -1;
@@ -683,7 +684,7 @@ uint32_t ProcessCommandLine(char *aCmdLine, int aLineLength)
 				return Err;
 			}
 			pixelColor_t Color = pixelFromRGB(r, g, b);
-      SetCactusPercent(FillPercent, Color);
+			SetCactusPercent(FillPercent, Color);
 			break;
 		}
 		default:
@@ -725,7 +726,7 @@ int CheckRGB(std::string &rs, std::string &gs, std::string &bs, int &r, int &g, 
 void SetCactusPercent(int aPercentage, pixelColor_t aColor)
 {
 	strand_t *pStrand = &STRANDS[0];
-  pixelColor_t BlackColor = pixelFromRGB(0, 0, 0);
+	pixelColor_t BlackColor = pixelFromRGB(0, 0, 0);
 	vector<uint8_t> Leds = GetLEDsPercent(aPercentage);
 	for (int t = 0; t < pStrand->numPixels; t++)
 		pStrand->pixels[t] = BlackColor;

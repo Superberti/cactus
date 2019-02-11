@@ -113,22 +113,18 @@ enum TCactusCommand {
   /// Beispiel: "SETLED 99 255 128 255"
   eCMD_SET_LED = 14,
 
-  /// Alle LEDs setzen. Es werden 144 RGB-Werte erwartet
-  /// Parameter: R0, G0, B0 ... R143, G143, B143
-  eCMD_SET_LEDS = 15,
-
   /// Einen Bereich (Start bis Ende) von LEDs setzen
   /// Parameter: Start-LED-Nummer, End-LED-Nummer, Rs, Gs, Bs ... Re, Ge, Be
-  eCMD_SET_LED_RANGE = 16,
+  eCMD_SET_LED_RANGE = 15,
 
   /// LED-Effekt abspielen
   /// Parameter: Effektnummer (0=aus)
-  eCMD_LED_EFFECT = 17,
+  eCMD_LED_EFFECT = 16,
 
   /// LED-Füllgrad in Prozent setzen (mit Farbe)
   /// Parameter: Füllgrad in Prozent, R, G, B
-  eCMD_FILL_CACTUS = 18,
-	
+  eCMD_FILL_CACTUS = 17,
+
 };
 
 /// Kommandostruktur. Bindet den Befehl an eine feste Zeichenkette
@@ -163,7 +159,6 @@ const TCommandStruct CactusCommands[] = {
   {eCMD_DELETECONFIGITEM,	"DELETECONFIGITEM"	    ,1 },
   {eCMD_CONFIGITEM_EXISTS,"CONFIGITEM_EXISTS"	    ,1 },
   {eCMD_SET_LED,          "SETLED"	              ,4 },
-  {eCMD_SET_LEDS,         "SETLEDS"	              ,3 },
   {eCMD_SET_LED_RANGE,    "SETLEDRANGE"	          ,5 },
   {eCMD_LED_EFFECT,       "LEDEFFECT"	            ,1 },
   {eCMD_FILL_CACTUS,      "FILLCACTUS"	          ,4 },
