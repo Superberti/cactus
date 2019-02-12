@@ -94,6 +94,7 @@ enum led_types {
   LED_WS2813_V3,
   LED_SK6812_V1,
   LED_SK6812W_V1,
+  LED_OLIVER,
 };
 
 const ledParams_t ledParamsAll[] = {  // Still must match order of `led_types`
@@ -106,6 +107,7 @@ const ledParams_t ledParamsAll[] = {  // Still must match order of `led_types`
   [LED_WS2813_V3]  = { .bytesPerPixel = 3, .T0H = 270, .T1H = 630, .T0L = 630, .T1L = 270, .TRS = 300000}, // 2017-05 WS datasheet
   [LED_SK6812_V1]  = { .bytesPerPixel = 3, .T0H = 300, .T1H = 600, .T0L = 900, .T1L = 600, .TRS =  80000},
   [LED_SK6812W_V1] = { .bytesPerPixel = 4, .T0H = 300, .T1H = 600, .T0L = 900, .T1L = 600, .TRS =  80000},
+  [LED_OLIVER]     = { .bytesPerPixel = 3, .T0H = 350, .T1H = 700, .T0L = 800, .T1L = 600, .TRS =  10000},
 };
 
 extern int digitalLeds_initStrands(strand_t strands [], int numStrands);
