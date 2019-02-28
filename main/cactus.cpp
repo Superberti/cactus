@@ -51,9 +51,9 @@ using namespace std;
 #define CONFIG_WIFI_SSID "SympatecCactus"
 #define CONFIG_WIFI_PASSWORD "cactus2019"
 #define EXAMPLE_MAX_STA_CONN 10
-#define CONFIG_BROKER_URL "mqtt://192.168.0.100"
+#define CONFIG_BROKER_URL "mqtt://swe-u758"
 #define NUM_LEDS 144
-#define MAX_LINE_SIZE 1024
+#define MAX_LINE_SIZE 2048
 
 /* FreeRTOS event group to signal when we are connected*/
 // static EventGroupHandle_t s_wifi_event_group;
@@ -98,6 +98,7 @@ extern "C" int app_main(void)
 	ESP_ERROR_CHECK(ret);
 	ESP_LOGI(TAG, "ESP_WIFI_MODE_CLIENT");
 	wifi_init();
+	
 	mqtt_app_start();
 	xTaskCreatePinnedToCore(
                     app_cpp_main,   /* Function to implement the task */
@@ -144,6 +145,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 		case MQTT_EVENT_DATA:
 			//ESP_LOGI(TAG, "MQTT_EVENT_DATA");
 			//printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+			//printf("Data offset: %d",event->current_data_offset);
 			//printf("DATA=%.*s\r\n", event->data_len, event->data);
 			if (std::string(event->topic, event->topic_len) == std::string("/cactus/commands"))
 			{
@@ -197,6 +199,8 @@ static void wifi_init(void)
 	ESP_ERROR_CHECK(esp_event_loop_init(wifi_event_handler, NULL));
 	wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
 	ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+	// WiFi-Energiesparmodus ausschalten
+	ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
 	ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
 	wifi_config_t wifi_config = {};
 	strcpy((char *)wifi_config.sta.ssid, CONFIG_WIFI_SSID);
@@ -217,6 +221,7 @@ static void mqtt_app_start(void)
 	mqtt_cfg.uri = CONFIG_BROKER_URL;
 	mqtt_cfg.event_handle = mqtt_event_handler;
 	mqtt_cfg.user_context = NULL;
+	mqtt_cfg.buffer_size=2048;
 	ESP_LOGI(TAG, "MQTT setup finished");
 	// .user_context = (void *)your_context
 	ESP_LOGI(TAG, "MQTT init start...");
@@ -437,10 +442,25 @@ void app_cpp_main(void * pvParameters)
 	uint32_t CurrentTime = 0;
 	uint32_t LastTime = millis();
 	strand_t *pStrand = &STRANDS[0];
+	Rainbower MyRainbow;
+	bool ConnectMsg=true;
+	for (int i=0;i<=100;i+=5)
+	{
+		pixelColor_t Color = MyRainbow.drawNext();
+		SetCactusPercent(i, Color);
+		delay(50);
+	}
+
+	delay(500);
+	for (int i=100;i>=0;i-=5)
+	{
+		pixelColor_t Color = MyRainbow.drawNext();
+		SetCactusPercent(i, Color);
+		delay(50);
+	}
+
 	for (;;)
 	{
-		//LedEffect(0, 5000);
-		//continue;
 		// Status der LEDs jede Sekunde veröffentlichen
 		CurrentTime = millis();
 		if ((CurrentTime - LastTime) > 1000)
@@ -448,6 +468,18 @@ void app_cpp_main(void * pvParameters)
 			LastTime = CurrentTime;
 			if (smMQTTConnected)
 			{
+				if (ConnectMsg)
+				{
+					ConnectMsg=false;
+					pixelColor_t Color = pixelFromRGB(0, 100, 0);
+					SetCactusPercent(100,Color);
+					delay(50);
+					SetCactusPercent(0,Color);
+					delay(50);
+					SetCactusPercent(100,Color);
+					delay(50);
+					SetCactusPercent(0,Color);
+				}
 				// ESP_LOGI(TAG, "publishing LED status");
 				int msg_id = esp_mqtt_client_publish(mqtt_client, "/cactus/LED_STATUS", (char *)pStrand->pixels,
 																						 pStrand->numPixels * sizeof(pixelColor_t), 1, 0);
@@ -455,6 +487,15 @@ void app_cpp_main(void * pvParameters)
 				toggle = !toggle;
 				gpio_set_level(GPIO_NUM_2, (uint32_t)toggle);
 			}
+			else
+			{
+				ConnectMsg=true;
+				pixelColor_t Color = pixelFromRGB(100, 0, 0);
+				SetCactusPercent(100,Color);
+				delay(50);
+				SetCactusPercent(0,Color);
+			}
+			
 		}
 	}
 	vTaskDelete(NULL);
@@ -554,10 +595,12 @@ uint32_t ProcessCommandLine(char *aCmdLine)
 				ESP_LOGI(TAG, "Too few RGB parameters. Expected %d, got %d", ExpectedParams, iTokens.size() - 3);
 				return ERR_PARAM_OUT_OF_BOUNDS;
 			}
-			for (int i = iStartLedNumber; i < NumLedsToSet; i++)
+			//ESP_LOGI(TAG, "Start:%d End:%d Num LEDs to set:%d", iStartLedNumber, iEndLedNumber, NumLedsToSet);
+			for (int i = iStartLedNumber; i <= iEndLedNumber; i++)
 			{
 				int Err =
-					CheckRGB(iTokens.at(3 + i - iStartLedNumber), iTokens.at(4 + i - iStartLedNumber), iTokens.at(5 + i - iStartLedNumber), r, g, b);
+					CheckRGB(iTokens.at(3 + (i - iStartLedNumber)*3), iTokens.at(4 + (i - iStartLedNumber)*3), iTokens.at(5 + (i - iStartLedNumber)*3), r, g, b);
+				//printf("r:%d g%d b%d",r,g,b);
 				if (Err != ERR_OK)
 				{
 					return Err;
