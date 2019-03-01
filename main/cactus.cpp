@@ -51,7 +51,8 @@ using namespace std;
 #define CONFIG_WIFI_SSID "SympatecCactus"
 #define CONFIG_WIFI_PASSWORD "cactus2019"
 #define EXAMPLE_MAX_STA_CONN 10
-#define CONFIG_BROKER_URL "mqtt://swe-u758"
+//#define CONFIG_BROKER_URL "mqtt://swe-u758"
+#define CONFIG_BROKER_URL "mqtt://192.168.0.100"
 #define NUM_LEDS 144
 #define MAX_LINE_SIZE 2048
 
