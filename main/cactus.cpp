@@ -62,6 +62,7 @@ static const char *TAG = "Sympatec MQTT Cactus";
 static bool smMQTTConnected = false;
 static esp_mqtt_client_handle_t mqtt_client = NULL;
 static char *pCurrentCommandLine;
+int gActiveEffect=0;
 
 // Prototypen
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event);
@@ -446,6 +447,8 @@ void app_cpp_main(void * pvParameters)
 	bool ConnectMsg=true;
 	for (int i=0;i<=100;i+=5)
 	{
+		MyRainbow.drawNext();
+		MyRainbow.drawNext();
 		pixelColor_t Color = MyRainbow.drawNext();
 		SetCactusPercent(i, Color);
 		delay(50);
@@ -454,6 +457,8 @@ void app_cpp_main(void * pvParameters)
 	delay(500);
 	for (int i=100;i>=0;i-=5)
 	{
+		MyRainbow.drawNext();
+		MyRainbow.drawNext();
 		pixelColor_t Color = MyRainbow.drawNext();
 		SetCactusPercent(i, Color);
 		delay(50);
@@ -461,6 +466,8 @@ void app_cpp_main(void * pvParameters)
 
 	for (;;)
 	{
+		if (gActiveEffect>0)
+			LedEffect(-1,0);	// Effektschleife aktivieren
 		// Status der LEDs jede Sekunde veröffentlichen
 		CurrentTime = millis();
 		if ((CurrentTime - LastTime) > 1000)
@@ -481,7 +488,7 @@ void app_cpp_main(void * pvParameters)
 					SetCactusPercent(0,Color);
 				}
 				// ESP_LOGI(TAG, "publishing LED status");
-				int msg_id = esp_mqtt_client_publish(mqtt_client, "/cactus/LED_STATUS", (char *)pStrand->pixels,
+				esp_mqtt_client_publish(mqtt_client, "/cactus/LED_STATUS", (char *)pStrand->pixels,
 																						 pStrand->numPixels * sizeof(pixelColor_t), 1, 0);
 				// ESP_LOGI(TAG, "publish return status, msg_id=%d", msg_id);
 				toggle = !toggle;
@@ -615,6 +622,13 @@ uint32_t ProcessCommandLine(char *aCmdLine)
 		}
 		case eCMD_LED_EFFECT:
 		{
+			int EffectNumber = strtol(iTokens.at(1).c_str(), NULL, 10);
+			if (EffectNumber < 0 || EffectNumber > 6)
+			{
+				ESP_LOGI(TAG, "Effect number out of bounds (0-6): %s", iTokens.at(1).c_str());
+				return ERR_PARAM_OUT_OF_BOUNDS;
+			}
+			gActiveEffect=EffectNumber;
 			break;
 		}
 		case eCMD_FILL_CACTUS:
@@ -693,11 +707,32 @@ void LedEffect(int aEffectNum, int aDuration_ms)
 
 	int StartTime = millis();
 	int i = 0;
-	while ((millis() - StartTime) < aDuration_ms)
+	// Bei aEffectNum=-1 wird auf den gActiveEffect gelauscht
+	while (((millis() - StartTime) < aDuration_ms) || aEffectNum == -1)
 	{
-		switch (aEffectNum)
+		int CurrentEffect=aEffectNum;
+		if (aEffectNum==-1)
 		{
-			case 0:
+			if (gActiveEffect==0)
+			{
+				// Kaktus ausschalten
+				pixelColor_t BlackColor = pixelFromRGB(0, 0, 0);
+				for (int t = 0; t < pStrand->numPixels; t++)
+				{
+					pStrand->pixels[t] = BlackColor;
+				}
+				digitalLeds_updatePixels(pStrand);
+				break; // Effektschleife beenden
+			}
+			else
+			{
+				CurrentEffect=gActiveEffect;
+			}
+		}
+		
+		switch (CurrentEffect)
+		{
+			case 1:
 			{
 				pixelColor_t c = MyRainbow.drawNext();
 				MyScanner.drawNext(c);
@@ -705,7 +740,7 @@ void LedEffect(int aEffectNum, int aDuration_ms)
 
 				break;
 			}
-			case 1:
+			case 2:
 			{
 				for (int t = 0; t < pStrand->numPixels / 2; t++)
 				{
@@ -717,7 +752,7 @@ void LedEffect(int aEffectNum, int aDuration_ms)
 				}
 				break;
 			}
-			case 2:
+			case 3:
 			{
 				pixelColor_t BlackColor = pixelFromRGB(0, 0, 0);
 
@@ -733,25 +768,9 @@ void LedEffect(int aEffectNum, int aDuration_ms)
 				break;
 			}
 
-			case 3:
-			{
-				pixelColor_t BlackColor = pixelFromRGB(0, 64, 0);
-				pixelColor_t WhiteColor = pixelFromRGB(255, 255, 255);
-
-				for (int t = 0; t < pStrand->numPixels; t++)
-				{
-					pixelColor_t BlinkColor = ((t + i) % 5) ? BlackColor : WhiteColor;
-					pStrand->pixels[t] = BlinkColor;
-				}
-				digitalLeds_updatePixels(pStrand);
-				delay(50);
-
-				break;
-			}
-
 			case 4:
 			{
-				pixelColor_t BlackColor = pixelFromRGB(0, 64, 0);
+				pixelColor_t BlackColor = pixelFromRGB(0, 128, 0);
 				pixelColor_t WhiteColor = pixelFromRGB(255, 255, 255);
 
 				for (int t = 0; t < pStrand->numPixels; t++)
@@ -766,6 +785,22 @@ void LedEffect(int aEffectNum, int aDuration_ms)
 			}
 
 			case 5:
+			{
+				pixelColor_t BlackColor = pixelFromRGB(128, 0, 0);
+				pixelColor_t WhiteColor = pixelFromRGB(255, 255, 255);
+
+				for (int t = 0; t < pStrand->numPixels; t++)
+				{
+					pixelColor_t BlinkColor = ((t + i) % 5) ? BlackColor : WhiteColor;
+					pStrand->pixels[t] = BlinkColor;
+				}
+				digitalLeds_updatePixels(pStrand);
+				delay(50);
+
+				break;
+			}
+
+			case 6:
 			{
 				pixelColor_t GreenColor = pixelFromRGB(rand() % 256, rand() % 256, rand() % 256);
 				pixelColor_t BlackColor = pixelFromRGB(0, 0, 0);
