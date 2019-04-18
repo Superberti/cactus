@@ -63,12 +63,12 @@ static const char *TAG = "Sympatec MQTT Cactus";
 static bool smMQTTConnected = false;
 static esp_mqtt_client_handle_t mqtt_client = NULL;
 static char *pCurrentCommandLine;
-int gActiveEffect=0;
+int gActiveEffect = 0;
 
 // Prototypen
 static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event);
 static esp_err_t wifi_event_handler(void *ctx, system_event_t *event);
-void app_cpp_main(void*);
+void app_cpp_main(void *);
 static void mqtt_app_start(void);
 static void wifi_init(void);
 void LedEffect(int aEffectNum, int aDuration_ms);
@@ -100,17 +100,16 @@ extern "C" int app_main(void)
 	ESP_ERROR_CHECK(ret);
 	ESP_LOGI(TAG, "ESP_WIFI_MODE_CLIENT");
 	wifi_init();
-	
+
 	mqtt_app_start();
-	xTaskCreatePinnedToCore(
-                    app_cpp_main,   /* Function to implement the task */
-                    "app_cpp_main", /* Name of the task */
-                    10000,      /* Stack size in words */
-                    NULL,       /* Task input parameter */
-                    0,          /* Priority of the task */
-                    NULL,       /* Task handle. */
-                    1);  /* Core where the task should run */
-	while (true){}
+	xTaskCreatePinnedToCore(app_cpp_main,		/* Function to implement the task */
+													"app_cpp_main", /* Name of the task */
+													10000,					/* Stack size in words */
+													NULL,						/* Task input parameter */
+													0,							/* Priority of the task */
+													NULL,						/* Task handle. */
+													1);							/* Core where the task should run */
+	while (true) {}
 	free(pCurrentCommandLine);
 	return 0;
 }
@@ -145,14 +144,14 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 			// ESP_LOGI(TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
 			break;
 		case MQTT_EVENT_DATA:
-			//ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-			//printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-			//printf("Data offset: %d",event->current_data_offset);
-			//printf("DATA=%.*s\r\n", event->data_len, event->data);
+			// ESP_LOGI(TAG, "MQTT_EVENT_DATA");
+			// printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+			// printf("Data offset: %d",event->current_data_offset);
+			// printf("DATA=%.*s\r\n", event->data_len, event->data);
 			if (std::string(event->topic, event->topic_len) == std::string("/cactus/commands"))
 			{
 				// Wir gehen immer von einem Textprotokoll aus, deshalb wird die Zeile kopiert und null-terminiert
-				int length = min(MAX_LINE_SIZE, event->data_len+1);
+				int length = min(MAX_LINE_SIZE, event->data_len + 1);
 				memcpy(pCurrentCommandLine, event->data, length);
 				pCurrentCommandLine[length - 1] = 0;
 				ProcessCommandLine(pCurrentCommandLine);
@@ -161,7 +160,7 @@ static esp_err_t mqtt_event_handler(esp_mqtt_event_handle_t event)
 			{
 				printf("Unknown TOPIC='%.*s'\r\n", event->topic_len, event->topic);
 			}
-			
+
 			break;
 		case MQTT_EVENT_ERROR:
 			ESP_LOGI(TAG, "MQTT_EVENT_ERROR");
@@ -223,7 +222,7 @@ static void mqtt_app_start(void)
 	mqtt_cfg.uri = CONFIG_BROKER_URL;
 	mqtt_cfg.event_handle = mqtt_event_handler;
 	mqtt_cfg.user_context = NULL;
-	mqtt_cfg.buffer_size=2048;
+	mqtt_cfg.buffer_size = 2048;
 	ESP_LOGI(TAG, "MQTT setup finished");
 	// .user_context = (void *)your_context
 	ESP_LOGI(TAG, "MQTT init start...");
@@ -424,7 +423,7 @@ vector<uint8_t> GetLEDsPercent(double aPercent)
 	return Leds;
 }
 
-void app_cpp_main(void * pvParameters)
+void app_cpp_main(void *pvParameters)
 {
 	bool toggle = false;
 	gpioSetup(17, OUTPUT, LOW);
@@ -445,8 +444,8 @@ void app_cpp_main(void * pvParameters)
 	uint32_t LastTime = millis();
 	strand_t *pStrand = &STRANDS[0];
 	Rainbower MyRainbow;
-	bool ConnectMsg=true;
-	for (int i=0;i<=100;i+=5)
+	bool ConnectMsg = true;
+	for (int i = 0; i <= 100; i += 5)
 	{
 		MyRainbow.drawNext();
 		MyRainbow.drawNext();
@@ -456,7 +455,7 @@ void app_cpp_main(void * pvParameters)
 	}
 
 	delay(500);
-	for (int i=100;i>=0;i-=5)
+	for (int i = 100; i >= 0; i -= 5)
 	{
 		MyRainbow.drawNext();
 		MyRainbow.drawNext();
@@ -467,8 +466,8 @@ void app_cpp_main(void * pvParameters)
 
 	for (;;)
 	{
-		if (gActiveEffect>0)
-			LedEffect(-1,0);	// Effektschleife aktivieren
+		if (gActiveEffect > 0)
+			LedEffect(-1, 0); // Effektschleife aktivieren
 		// Status der LEDs jede Sekunde veröffentlichen
 		CurrentTime = millis();
 		if ((CurrentTime - LastTime) > 1000)
@@ -478,32 +477,31 @@ void app_cpp_main(void * pvParameters)
 			{
 				if (ConnectMsg)
 				{
-					ConnectMsg=false;
+					ConnectMsg = false;
 					pixelColor_t Color = pixelFromRGB(0, 100, 0);
-					SetCactusPercent(100,Color);
+					SetCactusPercent(100, Color);
 					delay(50);
-					SetCactusPercent(0,Color);
+					SetCactusPercent(0, Color);
 					delay(50);
-					SetCactusPercent(100,Color);
+					SetCactusPercent(100, Color);
 					delay(50);
-					SetCactusPercent(0,Color);
+					SetCactusPercent(0, Color);
 				}
 				// ESP_LOGI(TAG, "publishing LED status");
-				esp_mqtt_client_publish(mqtt_client, "/cactus/LED_STATUS", (char *)pStrand->pixels,
-																						 pStrand->numPixels * sizeof(pixelColor_t), 1, 0);
+				esp_mqtt_client_publish(mqtt_client, "/cactus/LED_STATUS", (char *)pStrand->pixels, pStrand->numPixels * sizeof(pixelColor_t), 1,
+																0);
 				// ESP_LOGI(TAG, "publish return status, msg_id=%d", msg_id);
 				toggle = !toggle;
 				gpio_set_level(GPIO_NUM_2, (uint32_t)toggle);
 			}
 			else
 			{
-				ConnectMsg=true;
+				ConnectMsg = true;
 				pixelColor_t Color = pixelFromRGB(100, 0, 0);
-				SetCactusPercent(100,Color);
+				SetCactusPercent(100, Color);
 				delay(50);
-				SetCactusPercent(0,Color);
+				SetCactusPercent(0, Color);
 			}
-			
 		}
 	}
 	vTaskDelete(NULL);
@@ -539,11 +537,12 @@ uint32_t ProcessCommandLine(char *aCmdLine)
 	}
 	if ((int(iTokens.size()) - 1) < CactusCommands[CurrentCommand].mNumParams)
 	{
-		ESP_LOGI(TAG, "Number of parameters incorrect: %d %d %s", int(iTokens.size()) - 1, CactusCommands[CurrentCommand].mNumParams, InputLine.c_str());
+		ESP_LOGI(TAG, "Number of parameters incorrect: %d %d %s", int(iTokens.size()) - 1, CactusCommands[CurrentCommand].mNumParams,
+						 InputLine.c_str());
 		return ERR_NUMPARAMS;
 	}
 
-	//ESP_LOGI(TAG, "Executing command: %d", CurrentCommand);
+	// ESP_LOGI(TAG, "Executing command: %d", CurrentCommand);
 
 	strand_t *pStrand = &STRANDS[0];
 
@@ -571,7 +570,7 @@ uint32_t ProcessCommandLine(char *aCmdLine)
 			pStrand->pixels[iLedNumber] = Color;
 			digitalLeds_updatePixels(pStrand);
 			ESP_LOGI(TAG, "SETLED %d %d %d %d executed.", iLedNumber, r, g, b);
-			//delay(50);
+			// delay(50);
 			break;
 		}
 		case eCMD_SET_LED_RANGE:
@@ -603,12 +602,12 @@ uint32_t ProcessCommandLine(char *aCmdLine)
 				ESP_LOGI(TAG, "Too few RGB parameters. Expected %d, got %d", ExpectedParams, iTokens.size() - 3);
 				return ERR_PARAM_OUT_OF_BOUNDS;
 			}
-			//ESP_LOGI(TAG, "Start:%d End:%d Num LEDs to set:%d", iStartLedNumber, iEndLedNumber, NumLedsToSet);
+			// ESP_LOGI(TAG, "Start:%d End:%d Num LEDs to set:%d", iStartLedNumber, iEndLedNumber, NumLedsToSet);
 			for (int i = iStartLedNumber; i <= iEndLedNumber; i++)
 			{
-				int Err =
-					CheckRGB(iTokens.at(3 + (i - iStartLedNumber)*3), iTokens.at(4 + (i - iStartLedNumber)*3), iTokens.at(5 + (i - iStartLedNumber)*3), r, g, b);
-				//printf("r:%d g%d b%d",r,g,b);
+				int Err = CheckRGB(iTokens.at(3 + (i - iStartLedNumber) * 3), iTokens.at(4 + (i - iStartLedNumber) * 3),
+													 iTokens.at(5 + (i - iStartLedNumber) * 3), r, g, b);
+				// printf("r:%d g%d b%d",r,g,b);
 				if (Err != ERR_OK)
 				{
 					return Err;
@@ -629,7 +628,7 @@ uint32_t ProcessCommandLine(char *aCmdLine)
 				ESP_LOGI(TAG, "Effect number out of bounds (0-6): %s", iTokens.at(1).c_str());
 				return ERR_PARAM_OUT_OF_BOUNDS;
 			}
-			gActiveEffect=EffectNumber;
+			gActiveEffect = EffectNumber;
 			break;
 		}
 		case eCMD_FILL_CACTUS:
@@ -711,10 +710,10 @@ void LedEffect(int aEffectNum, int aDuration_ms)
 	// Bei aEffectNum=-1 wird auf den gActiveEffect gelauscht
 	while (((millis() - StartTime) < aDuration_ms) || aEffectNum == -1)
 	{
-		int CurrentEffect=aEffectNum;
-		if (aEffectNum==-1)
+		int CurrentEffect = aEffectNum;
+		if (aEffectNum == -1)
 		{
-			if (gActiveEffect==0)
+			if (gActiveEffect == 0)
 			{
 				// Kaktus ausschalten
 				pixelColor_t BlackColor = pixelFromRGB(0, 0, 0);
@@ -727,10 +726,10 @@ void LedEffect(int aEffectNum, int aDuration_ms)
 			}
 			else
 			{
-				CurrentEffect=gActiveEffect;
+				CurrentEffect = gActiveEffect;
 			}
 		}
-		
+
 		switch (CurrentEffect)
 		{
 			case 1:
